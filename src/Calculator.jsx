@@ -1,4 +1,10 @@
 import React, { useReducer, useEffect, useState, useRef } from 'react'
+import {
+  isSupabaseConfigured,
+  fetchHistoryFromSupabase,
+  saveCalculationToSupabase,
+  clearHistoryInSupabase
+} from './supabaseClient'
 import './Calculator.css'
 
 const initialState = {
@@ -340,6 +346,13 @@ function calculatorReducer(state, action) {
       }
     }
 
+    case 'SET_HISTORY': {
+      return {
+        ...state,
+        history: action.payload
+      }
+    }
+
     case 'CLEAR_HISTORY': {
       return {
         ...state,
@@ -462,6 +475,43 @@ export default function Calculator() {
     return 'calc-display-digits text-lg'
   }
 
+  // Load initial history from Supabase if configured
+  useEffect(() => {
+    let isMounted = true
+    async function loadRemoteHistory() {
+      if (isSupabaseConfigured) {
+        const remoteData = await fetchHistoryFromSupabase()
+        if (isMounted && remoteData && remoteData.length > 0) {
+          dispatch({ type: 'SET_HISTORY', payload: remoteData })
+        }
+      }
+    }
+    loadRemoteHistory()
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  // Sync new calculations to Supabase in the background
+  const lastSavedItemRef = useRef(null)
+  useEffect(() => {
+    if (isSupabaseConfigured && state.history.length > 0) {
+      const latest = state.history[0]
+      if (latest && latest !== lastSavedItemRef.current) {
+        lastSavedItemRef.current = latest
+        saveCalculationToSupabase(latest.expression, latest.result)
+      }
+    }
+  }, [state.history])
+
+  // Clear history both locally and in Supabase
+  const handleClearHistory = () => {
+    dispatch({ type: 'CLEAR_HISTORY' })
+    if (isSupabaseConfigured) {
+      clearHistoryInSupabase()
+    }
+  }
+
   return (
     <div className="calculator-container">
       <div className="calculator-card">
@@ -472,6 +522,17 @@ export default function Calculator() {
             <span className="dot yellow"></span>
             <span className="dot green"></span>
             <span className="calc-name">Calculadora</span>
+            <span
+              className={`supabase-badge ${isSupabaseConfigured ? 'connected' : 'offline'}`}
+              title={
+                isSupabaseConfigured
+                  ? 'Supabase conectado: el historial se sincroniza en la nube'
+                  : 'Supabase en modo local (configura VITE_SUPABASE_ANON_KEY en .env)'
+              }
+            >
+              <span className="supabase-dot"></span>
+              {isSupabaseConfigured ? 'Supabase' : 'Local'}
+            </span>
           </div>
 
           <div className="header-actions">
@@ -515,7 +576,7 @@ export default function Calculator() {
               {state.history.length > 0 && (
                 <button
                   className="clear-history-btn"
-                  onClick={() => dispatch({ type: 'CLEAR_HISTORY' })}
+                  onClick={handleClearHistory}
                 >
                   Borrar
                 </button>
